@@ -1,0 +1,78 @@
+{
+  "preamble": {
+    "title": "iog/validators",
+    "description": "Aiken contracts for project 'iog/validators'",
+    "version": "0.0.0",
+    "plutusVersion": "v2",
+    "compiler": {
+      "name": "Aiken",
+      "version": "v1.0.26-alpha+075668b"
+    },
+    "license": "Apache-2.0"
+  },
+  "validators": [
+    {
+      "title": "lesson01/always_true.gift",
+      "datum": {
+        "title": "_datum",
+        "schema": {
+          "$ref": "#/definitions/Data"
+        }
+      },
+      "redeemer": {
+        "title": "_redeemer",
+        "schema": {
+          "$ref": "#/definitions/Data"
+        }
+      },
+      "compiledCode": "510100003222253330044a229309b2b2b9a1",
+      "hash": "39c520d0627aafa728f7e4dd10142b77c257813c36f57e2cb88f72a5"
+    },
+    {
+      "title": "lesson01/forty_two.fortyTwo",
+      "datum": {
+        "title": "_d",
+        "schema": {
+          "$ref": "#/definitions/Data"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/Int"
+        }
+      },
+      "compiledCode": "581a010000322232253330053370e004902a0a4c26cac6eb40055cd1",
+      "hash": "75c447f1fc6d75dcfeb310152024b829b9121932f9559880156cb41a"
+    },
+    {
+      "title": "lesson01/redeemer_equals_datum.eqDatumRedeem",
+      "datum": {
+        "title": "datum",
+        "schema": {
+          "$ref": "#/definitions/String"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/String"
+        }
+      },
+      "compiledCode": "582201000032232232253330063372e00400829309b2b1b99375c0026e64dd7000ab9a01",
+      "hash": "e4867aae7ceda76e708132df7a905908b451bdd807c7d25b672e2244"
+    }
+  ],
+  "definitions": {
+    "Data": {
+      "title": "Data",
+      "description": "Any Plutus data."
+    },
+    "Int": {
+      "dataType": "integer"
+    },
+    "String": {
+      "dataType": "#string"
+    }
+  }
+}
