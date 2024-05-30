@@ -1,8 +1,8 @@
 # Aiken compilation artifacts
-artifacts/
+onchain/artifacts/
 # Aiken's project working directory
-build/
+onchain/build/
 # Aiken's default documentation export
-docs/
+onchain/docs/
 
 .devcontainer/.env

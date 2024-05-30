@@ -33,13 +33,12 @@ RUN mkdir -p /usr/local/share/bash-completion/completions &&\
   /home/user/.aiken/bin/aiken completion bash > /usr/local/share/bash-completion/completions/aiken &&\
   echo "source /usr/local/share/bash-completion/completions/aiken" >> /home/user/.bashrc
 
-USER user
+USER root
 
-# install deno
-RUN curl -fsSL https://deno.land/install.sh | sh &&\
-  echo "export DENO_INSTALL=\"/home/user/.deno\"" >> /home/user/.bashrc &&\
-  echo "PATH=\"\$DENO_INSTALL/bin:\$PATH\"" >> /home/user/.bashrc &&\
-  rm -rf /var/lib/apt/lists/*
-
-RUN echo "alias server-docs='python3 -m http.server -d /workspaces/cardano-dev-2024/examples-aiken/docs/'" >> /home/user/.bashrc
-RUN echo "alias run-script='deno run --allow-read --allow-write --allow-net --allow-env'" >> /home/user/.bashrc
+## Insatll the most recent version of node 
+RUN apt-get update && \
+    apt-get install -y curl gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs=20.10.0-1nodesource1 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
