@@ -1,6 +1,9 @@
 import Head from "next/head";
 import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
+import plutusScript from "../../../onchain/plutus.json"
+import { useState } from "react";
 import {
+    Data,
     resolvePlutusScriptAddress,
     Transaction,
     resolveDataHash,
@@ -8,21 +11,19 @@ import {
     BlockfrostProvider
 
 } from "@meshsdk/core";
-import { useState } from "react";
-import plutusScript from "../../../onchain/plutus.json"
+
+
 import cbor from "cbor";
 
 
-// Getting always true script
 const script = {
     code: cbor
-        .encode(Buffer.from(plutusScript.validators.filter((val: any) => val.title == "lesson01/always_true.gift")[0].compiledCode, "hex"))
+        .encode(Buffer.from(plutusScript.validators.filter((val: any) => val.title == "lesson01/forty_two.fortyTwo")[0].compiledCode, "hex"))
         .toString("hex"),
     version: "V2",
 };
 
 const scriptAddress = resolvePlutusScriptAddress(script, 0);
-
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST);
 
 enum States {
@@ -35,15 +36,25 @@ enum States {
     unlocked,
 }
 
+
 export default function Home() {
     const [state, setState] = useState(States.init);
+    const [redeemer, setRedeemer] = useState();
     var { connected } = useWallet()
+
+    const handleChange = (event) => {
+        const value = event.target.value;
+        // Solo permitir valores numéricos
+        if (/^[0-9]*$/.test(value)) {
+            setRedeemer(value);
+        }
+    };
 
     return (
         <div className="container">
             <Head>
-                <title>Always true on Cardano</title>
-                <meta name="description" content="Always True dApp powered my Mesh" />
+                <title>Forty-two on Cardano</title>
+                <meta name="description" content="Forty-two dApp powered my Mesh" />
                 <link
                     rel="icon"
                     href="https://meshjs.dev/favicon/favicon-32x32.png"
@@ -57,7 +68,7 @@ export default function Home() {
 
             <main className="main">
                 <h1 className="title">
-                    <a>Always true </a>
+                    <a>Forty-two</a>
                 </h1>
 
                 <div className="demo">
@@ -81,7 +92,7 @@ export default function Home() {
                     <a className="card">
                         <h2>Lock</h2>
                         <p>
-                            Lock 50 ADA:<br />
+                            Lock 50 ADAs on 42 validator:<br /><br />
                             {<LockButton setState={setState} state={state} />}
                         </p>
                     </a>
@@ -89,19 +100,19 @@ export default function Home() {
                     <a className="card">
                         <h2>Unlock</h2>
                         <p>
-                            Unlock 50 ADA:<br />
-                            {<UnlockButton setState={setState} state={state} />}
+                            Unlock ADAs from 42 validator:
+                            Redemer: <input onChange={handleChange}
+                                onKeyPress={(event) => { if (!/[0-9]/.test(event.key)) { event.preventDefault(); } }}
+                            />
+                            {<UnlockButton setState={setState} state={state} redeemerData={redeemer} />}
                         </p>
                     </a>
-
                 </div>
             </main>
         </div>
     );
 }
 
-
-///Transaction functions
 function LockButton({ setState, state }) {
     const { wallet, connected } = useWallet();
 
@@ -142,7 +153,7 @@ function LockButton({ setState, state }) {
 }
 
 
-function UnlockButton({ setState, state }) {
+function UnlockButton({ setState, state, redeemerData }) {
     const { wallet } = useWallet();
 
     async function _getAssetUtxo({ scriptAddress, asset }) {
@@ -170,13 +181,16 @@ function UnlockButton({ setState, state }) {
             asset: "lovelace",
         });
         console.log("assetUtxo", assetUtxo);
+        console.log(parseInt(redeemerData));
+        const redeemer = { data: parseInt(redeemerData) };
 
         // create the unlock asset transaction
         const tx = new Transaction({ initiator: wallet })
             .redeemValue({
                 value: assetUtxo,
                 script: script,
-                datum: 'secret1'
+                datum: 'secret1',
+                redeemer: redeemer
             })
             .sendValue(address, assetUtxo)
             .setRequiredSigners([address]);
@@ -187,7 +201,6 @@ function UnlockButton({ setState, state }) {
         console.log("txHash", txHash);
 
         if (txHash) {
-
             setState(States.unlockingConfirming);
             blockchainProvider.onTxConfirmed(txHash, () => {
                 setState(States.unlocked);
