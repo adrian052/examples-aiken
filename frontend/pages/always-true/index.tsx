@@ -56,8 +56,8 @@ export default function Home() {
             </Head>
 
             <main className="main">
-                <h1 className="title">
-                    <a>Always true </a>
+                <h1 style={{ margin: '0', lineHeight: '1.15', fontSize: '4rem', fontWeight: 200 }}>
+                    <a style={{ color: 'orange', textDecoration: 'none' }}>Always true</a>
                 </h1>
 
                 <div className="demo">

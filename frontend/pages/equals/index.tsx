@@ -7,9 +7,9 @@ import {
     resolvePlutusScriptAddress,
     Transaction,
     resolveDataHash,
+    readPlutusData,
     resolvePaymentKeyHash,
     BlockfrostProvider
-
 } from "@meshsdk/core";
 
 
@@ -18,7 +18,7 @@ import cbor from "cbor";
 
 const script = {
     code: cbor
-        .encode(Buffer.from(plutusScript.validators.filter((val: any) => val.title == "lesson01/forty_two.fortyTwo")[0].compiledCode, "hex"))
+        .encode(Buffer.from(plutusScript.validators.filter((val: any) => val.title == "lesson01/redeemer_equals_datum.eqDatumRedeem")[0].compiledCode, "hex"))
         .toString("hex"),
     version: "V2",
 };
@@ -39,21 +39,26 @@ enum States {
 
 export default function Home() {
     const [state, setState] = useState(States.init);
-    const [redeemer, setRedeemer] = useState(0);
+    const [redeemer, setRedeemer] = useState("");
+    const [datum, setDatum] = useState("")
+    const [transactionHash, setTransactionHash] = useState("");
     var { connected } = useWallet()
 
-    const handleChange = (event) => {
+    const handleRedeemer = (event) => {
         const value = event.target.value;
-        if (/^[0-9]*$/.test(value)) {
-            setRedeemer(value);
-        }
+        setRedeemer(value);
+    };
+
+    const handleDatum = (event) => {
+        const value = event.target.value;
+        setDatum(value);
     };
 
     return (
         <div className="container">
             <Head>
-                <title>Forty-two on Cardano</title>
-                <meta name="description" content="Forty-two dApp powered my Mesh" />
+                <title>Redeemer equals datum on Cardano</title>
+                <meta name="description" content="Redeemer equals datum dApp powered my Mesh" />
                 <link
                     rel="icon"
                     href="https://meshjs.dev/favicon/favicon-32x32.png"
@@ -67,7 +72,7 @@ export default function Home() {
 
             <main className="main">
                 <h1 style={{ margin: '0', lineHeight: '1.15', fontSize: '4rem', fontWeight: 200 }}>
-                    <a style={{ color: 'orange', textDecoration: 'none' }}>Forty-two</a>
+                    <a style={{ color: 'orange', textDecoration: 'none' }}>Redeemer equals datum</a>
                 </h1>
 
                 <div className="demo">
@@ -83,10 +88,21 @@ export default function Home() {
                                 <>Awaiting transaction confirm...</>
                             )}
                         {(state == States.unlocked) && (
-                            <>Unlocked.</>
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+                                <>
+                                    Unlocked. <br />
+                                    Tx Hash: {transactionHash}
+                                </>
+                            </div>
                         )}
                         {(state == States.locked) && (
-                            <>ADAs locked, you can unlock them now.</>
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+                                <>
+                                    Locked. <br />
+                                    Tx Hash: {transactionHash}<br />
+                                    You can unlock them now.
+                                </>
+                            </div>
                         )}
                     </>
                 )}
@@ -94,19 +110,26 @@ export default function Home() {
                     <a className="card">
                         <h2>Lock</h2>
                         <p>
-                            Lock 50 ADAs on 42 validator:<br /><br />
-                            {<LockButton setState={setState} state={state} />}
+                            Lock 50 ADAs on redeemer equals datum validator:<br /><br />
+                            Datum: <input disabled={state !== States.init || !connected} onChange={handleDatum} />
+                            {<LockButton setState={setState}
+                                state={state}
+                                datumData={datum}
+                                setTransactionHash={setTransactionHash}
+                            />}
                         </p>
                     </a>
 
                     <a className="card">
                         <h2>Unlock</h2>
                         <p>
-                            Unlock ADAs from 42 validator:
-                            Redemer: <input disabled={state !== States.locked} onChange={handleChange}
-                                onKeyPress={(event) => { if (!/[0-9]/.test(event.key)) { event.preventDefault(); } }}
-                            />
-                            {<UnlockButton setState={setState} state={state} redeemerData={redeemer} />}
+                            Unlock ADAs from redeemer equals datum validator:<br /><br />
+                            Redeemer: <input disabled={state !== States.locked} onChange={handleRedeemer} />
+                            {<UnlockButton setState={setState}
+                                state={state}
+                                redeemerData={redeemer}
+                                datumData={datum}
+                                setTransactionHash={setTransactionHash} />}
                         </p>
                     </a>
                 </div>
@@ -115,7 +138,7 @@ export default function Home() {
     );
 }
 
-function LockButton({ setState, state }) {
+function LockButton({ setState, state, datumData, setTransactionHash }) {
     const { wallet, connected } = useWallet();
 
     async function lockAiken() {
@@ -125,7 +148,8 @@ function LockButton({ setState, state }) {
             {
                 address: scriptAddress,
                 datum: {
-                    value: "secret1",
+                    value: datumData,
+                    inline: true
                 }
             },
             '50000000',
@@ -134,9 +158,11 @@ function LockButton({ setState, state }) {
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);
         const txHash = await wallet.submitTx(signedTx);
-        console.log("txHash", txHash);
+
         if (txHash) {
             setState(States.lockingConfirming);
+            setTransactionHash(txHash)
+            console.log("txHash", txHash);
             blockchainProvider.onTxConfirmed(
                 txHash,
                 () => {
@@ -155,17 +181,26 @@ function LockButton({ setState, state }) {
 }
 
 
-function UnlockButton({ setState, state, redeemerData }) {
+function UnlockButton({ setState, state, redeemerData, datumData, setTransactionHash }) {
     const { wallet } = useWallet();
+
+    function ascii_to_hexa(str: string): string {
+        let hex = '';
+        for (let i = 0; i < str.length; i++) {
+            let hexChar = str.charCodeAt(i).toString(16);
+            hex += ('00' + hexChar).slice(-2);
+        }
+        return hex;
+    }
 
     async function _getAssetUtxo({ scriptAddress, asset }) {
 
         const utxos = await blockchainProvider.fetchAddressUTxOs(scriptAddress, asset);
 
-
-        const hash = resolveDataHash("secret1")
         let utxo = utxos.find((utxo: any) => {
-            return utxo.output.dataHash == hash;
+            if (utxo.output.plutusData) {
+                return readPlutusData(utxo.output.plutusData) == ascii_to_hexa(datumData);
+            }
         });
 
         return utxo;
@@ -180,18 +215,17 @@ function UnlockButton({ setState, state, redeemerData }) {
 
         const assetUtxo = await _getAssetUtxo({
             scriptAddress: scriptAddress,
-            asset: "lovelace",
+            asset: "lovelace"
         });
-        console.log("assetUtxo", assetUtxo);
-        console.log(parseInt(redeemerData));
-        const redeemer = { data: parseInt(redeemerData) };
+
+        const redeemer: Data = { data: redeemerData };
 
         // create the unlock asset transaction
         const tx = new Transaction({ initiator: wallet })
             .redeemValue({
                 value: assetUtxo,
                 script: script,
-                datum: 'secret1',
+                datum: assetUtxo,
                 redeemer: redeemer
             })
             .sendValue(address, assetUtxo)
@@ -200,8 +234,10 @@ function UnlockButton({ setState, state, redeemerData }) {
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx, true);
         var txHash = undefined;
+
         try {
-            const txHash = await wallet.submitTx(signedTx);
+            txHash = await wallet.submitTx(signedTx);
+            setTransactionHash(txHash)
             console.log("txHash", txHash);
         } catch (error) {
             alert("Error: Transaction failed", error);
@@ -209,11 +245,14 @@ function UnlockButton({ setState, state, redeemerData }) {
             return;
         }
 
-
         setState(States.unlockingConfirming);
-        blockchainProvider.onTxConfirmed(txHash, () => {
-            setState(States.unlocked);
-        });
+        blockchainProvider.onTxConfirmed(
+            txHash,
+            () => {
+                setState(States.unlocked);
+            },
+            100
+        );
 
     }
 
