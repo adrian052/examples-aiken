@@ -1,30 +1,26 @@
-use aiken/dict
+use aiken/dict.{to_list}
 use aiken/list
 use aiken/transaction.{Mint, OutputReference, ScriptContext, Transaction}
-use aiken/transaction/value
+use aiken/transaction/value.{AssetName, from_minted_value, tokens}
 
 type Action {
-  Mint
-  Burn
+  Minting
+  Burning
 }
 
-validator(token_name: ByteArray, utxo_ref: OutputReference) {
-  fn nft(redeemer: Action, ctx: ScriptContext) -> Bool {
-    let ScriptContext { transaction, purpose } = ctx
-    expect Mint(policy_id) = purpose
-    let Transaction { inputs, mint, .. } = transaction
-    expect [Pair(asset_name, amount)] =
-      mint
-        |> value.from_minted_value
-        |> value.tokens(policy_id)
-        |> dict.to_pairs()
-    when redeemer is {
-      Mint -> {
-        expect Some(_input) =
-          list.find(inputs, fn(input) { input.output_reference == utxo_ref })
-        amount == 1 && asset_name == token_name
-      }
-      Burn -> amount == -1 && asset_name == token_name
+validator(utxo_ref: OutputReference, token_name: AssetName) {
+  fn nft(action: Action, ctx: ScriptContext) -> Bool {
+    expect Mint(policy_id) = ctx.purpose
+    let ScriptContext { transaction: Transaction { inputs, mint, .. }, .. } =
+      ctx
+    expect [(asset_name, amount)] =
+      mint |> from_minted_value |> tokens(policy_id) |> to_list()
+    let is_output_consumed =
+      list.any(inputs, fn(input) { input.output_reference == utxo_ref })
+    when action is {
+      Minting ->
+        is_output_consumed? && (1 == amount)? && (asset_name == token_name)?
+      Burning -> (-1 == amount)? && (asset_name == token_name)?
     }
   }
 }
