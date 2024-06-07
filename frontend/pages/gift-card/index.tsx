@@ -42,6 +42,7 @@ export default function Home() {
     const [policyId, setPolicyId] = useState();
     const [tokenName, setTokenName] = useState("");
     const [transactionHash, setTransactionHash] = useState();
+    const [script, setScript] = useState();
 
 
     const handleToken = (event) => {
@@ -52,8 +53,8 @@ export default function Home() {
     return (
         <div className="container">
             <Head>
-                <title>NFT for free on Cardano</title>
-                <meta name="description" content="NFT for free dApp powered my Mesh" />
+                <title>Gift card on Cardano</title>
+                <meta name="description" content="Gift card dApp powered my Mesh" />
                 <link
                     rel="icon"
                     href="https://meshjs.dev/favicon/favicon-32x32.png"
@@ -85,7 +86,7 @@ export default function Home() {
                         {(state == States.burned) && (
                             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
                                 <>
-                                    NFT burned. <br />
+                                    Gift card burned and ADAs unlocked. <br />
                                     Tx Hash: {transactionHash}
                                 </>
                             </div>
@@ -93,9 +94,9 @@ export default function Home() {
                         {(state == States.minted) && (
                             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
                                 <>
-                                    NFT minted. <br />
+                                    Gift card minted and ADAs locked. <br />
                                     Tx Hash: {transactionHash}<br />
-                                    You can burn it now.
+                                    You can burn it now and unlock the ADAs.
                                 </>
                             </div>
                         )}
@@ -105,7 +106,7 @@ export default function Home() {
                     <a className="card">
                         <h2>Mint</h2>
                         <p>
-                            Mint asset using an NFT policy:<br /><br />
+                            Mint gift card and lock 50 ADAs.<br /><br />
                             Token Name:
                             <br /><input disabled={state !== States.init || !connected} onChange={handleToken} /><br />
                             {<MintButton setState={setState}
@@ -113,21 +114,23 @@ export default function Home() {
                                 setPolicy={setPolicy}
                                 setPolicyId={setPolicyId}
                                 tokenName={tokenName}
-                                setTransactionHash={setTransactionHash} />}
+                                setTransactionHash={setTransactionHash}
+                                setScript={setScript} />}
                         </p>
                     </a>
 
                     <a className="card">
                         <h2>Burn</h2>
                         <p>
-                            Burn asset from NFT policy:<br /><br /><br /><br />
+                            Burn Gift card and get ADAs:<br /><br /><br /><br />
                             {<BurnButton
                                 setState={setState}
                                 state={state}
                                 policy={policy}
                                 policyId={policyId}
                                 tokenName={tokenName}
-                                setTransactionHash={setTransactionHash} />}
+                                setTransactionHash={setTransactionHash}
+                                script={script} />}
                         </p>
                     </a>
                 </div>
@@ -136,40 +139,146 @@ export default function Home() {
     );
 }
 
-function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTransactionHash }) {
+function getScript() {
+    const script = {
+        code: cbor
+            .encode(Buffer.from(plutusScript.validators.filter((val: any) => val.title == "lesson01/always_true.gift")[0].compiledCode, "hex"))
+            .toString("hex"),
+        version: "V2",
+    };
+    return script;
+}
+
+function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTransactionHash, setScript }) {
     const { wallet, connected } = useWallet();
 
-    async function mintAiken() {
-        setState(States.minting);
-
-        const address = (await wallet.getUsedAddresses())[0];
-
-        //Getting nft policy
-        const utxo = (await wallet.getUtxos())[0];
+    async function getPolicy(utxo) {
         const outRef = { alternative: 0, fields: [{ alternative: 0, fields: [utxo.input.txHash] }, utxo.input.outputIndex] }
         const cborPolicy = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/nft.nft")[0].compiledCode, [outRef, tokenName])
-        const policy = {
+        return {
             code: cborPolicy,
             version: "V2"
         }
-        const policyAddress = resolvePlutusScriptAddress(policy, 0);
-        const policyId = resolvePlutusScriptHash(policyAddress);
-        setPolicyId(policyId);
-        setPolicy(policy);
-
-        const asset: Mint = {
+    }
+    function getAsset(address) {
+        return {
             assetName: tokenName,
             assetQuantity: "1",
             label: "721",
             recipient: address,
         };
+    }
 
-        const redeemer = {
+    function getRedeemer() {
+        return {
             data: { alternative: 0, fields: [] },
             tag: 'MINT'
         };
+    }
 
-        const tx = new Transaction({ initiator: wallet }).mintAsset(policy, asset, redeemer).setTxInputs([utxo]);
+    async function mintAiken() {
+        setState(States.minting);
+        const utxos = await wallet.getUtxos();
+        const address = (await wallet.getUsedAddresses())[0];
+        const policy = await getPolicy(utxos[0]);
+        const asset = getAsset(address);
+        const redeemer = getRedeemer()
+        console.log(policy, asset, redeemer);
+
+        const tx = new Transaction({ initiator: wallet }).sendLovelace(
+            {
+                address: resolvePlutusScriptAddress(getScript(), 0),
+            },
+            '50000000',
+        ).mintAsset(policy, asset, redeemer).setTxInputs(utxos);
+        setPolicy(policy);
+        const policyAddress = resolvePlutusScriptAddress(policy, 0);
+        const policyId = resolvePlutusScriptHash(policyAddress);
+        setPolicyId(policyId);
+        const unsignedTx = await tx.build();
+        const signedTx = await wallet.signTx(unsignedTx);
+        const txHash = await wallet.submitTx(signedTx);
+        console.log("txHash", txHash);
+        setTransactionHash(txHash);
+        if (txHash) {
+            setState(States.mintingConfirming);
+            blockchainProvider.onTxConfirmed(
+                txHash,
+                async () => {
+                    setState(States.minted);
+                },
+                100
+            );
+        }
+    }
+
+    return (
+        <button type="button" onClick={() => mintAiken()} className="demo button" disabled={!connected || state !== States.init}>
+            Mint
+        </button>
+    );
+}
+
+
+function BurnButton({ setState, state, policy, policyId, tokenName, setTransactionHash, script }) {
+    const { wallet } = useWallet();
+
+    function utf8_to_hexa(str) {
+        let hex = '';
+        for (let i = 0; i < str.length; i++) {
+            let codePoint = str.codePointAt(i);
+            let utf8Bytes = [];
+
+            if (codePoint < 0x80) {
+                utf8Bytes.push(codePoint);
+            } else if (codePoint < 0x800) {
+                utf8Bytes.push(0xC0 | (codePoint >> 6));
+                utf8Bytes.push(0x80 | (codePoint & 0x3F));
+            } else if (codePoint < 0x10000) {
+                utf8Bytes.push(0xE0 | (codePoint >> 12));
+                utf8Bytes.push(0x80 | ((codePoint >> 6) & 0x3F));
+                utf8Bytes.push(0x80 | (codePoint & 0x3F));
+            } else {
+                utf8Bytes.push(0xF0 | (codePoint >> 18));
+                utf8Bytes.push(0x80 | ((codePoint >> 12) & 0x3F));
+                utf8Bytes.push(0x80 | ((codePoint >> 6) & 0x3F));
+                utf8Bytes.push(0x80 | (codePoint & 0x3F));
+                i++;
+            }
+
+            for (let byte of utf8Bytes) {
+                hex += ('00' + byte.toString(16)).slice(-2);
+            }
+        }
+        return hex;
+    }
+
+    async function burnAiken() {
+        const address = (await wallet.getUsedAddresses())[0];
+        console.log(address);
+        const script = getScript();
+        const scriptAddress = resolvePlutusScriptAddress(script, 0);
+        const utxo = (await blockchainProvider.fetchAddressUTxOs(scriptAddress, ''))[0];
+        console.log(script, scriptAddress, utxo);
+        const asset = {
+            unit: policyId + utf8_to_hexa(tokenName),
+            quantity: "1",
+        };
+        console.log(asset);
+
+        const redeemer = {
+            data: { alternative: 1, fields: [] },
+            tag: 'MINT'
+        };
+
+        const tx = new Transaction({ initiator: wallet })
+            .redeemValue({
+                value: utxo,
+                script: script,
+                datum: 'secret1',
+            })
+            .sendValue(address, utxo)
+            .setRequiredSigners([address]);
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);
@@ -186,60 +295,6 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
                 100
             );
         }
-
-    }
-
-    return (
-        <button type="button" onClick={() => mintAiken()} className="demo button" disabled={!connected || state !== States.init}>
-            Mint
-        </button>
-    );
-}
-
-
-function BurnButton({ setState, state, policy, policyId, tokenName, setTransactionHash }) {
-    const { wallet } = useWallet();
-
-    function ascii_to_hexa(str: string): string {
-        let hex = '';
-        for (let i = 0; i < str.length; i++) {
-            let hexChar = str.charCodeAt(i).toString(16);
-            hex += ('00' + hexChar).slice(-2);
-        }
-        return hex;
-    }
-
-    async function burnAiken() {
-        setState(States.burning);
-
-        const address = (await wallet.getUsedAddresses())[0];
-        const utxos = await blockchainProvider.fetchAddressUTxOs(address, policyId + ascii_to_hexa(tokenName));
-
-        //Asset to burn
-
-        const asset = {
-            unit: policyId + ascii_to_hexa(tokenName),
-            quantity: "1",
-        };
-
-        const redeemer = {
-            data: { alternative: 1, fields: [] },
-            tag: 'MINT'
-        };
-
-        // create the burn asset transaction
-        const tx = new Transaction({ initiator: wallet }).burnAsset(policy, asset, redeemer);
-
-        const unsignedTx = await tx.build();
-        const signedTx = await wallet.signTx(unsignedTx);
-        const txHash = await wallet.submitTx(signedTx);
-        console.log("txHash", txHash);
-        setTransactionHash(txHash);
-        setState(States.burningConfirming);
-        blockchainProvider.onTxConfirmed(txHash, () => {
-            setState(States.burned);
-        });
-
     }
 
     return (
