@@ -3,32 +3,49 @@ import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
 import {
     resolvePlutusScriptAddress,
     Transaction,
-    resolveDataHash,
     resolvePaymentKeyHash,
     BlockfrostProvider,
-    resolvePlutusScriptHash
 } from "@meshsdk/core";
 import { applyParamsToScript } from '@meshsdk/core-csl'
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import plutusScript from "../../../onchain/plutus.json"
-import cbor from "cbor";
 
 
-const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST);
+const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
 enum States {
     init,
-    locking,
-    lockingConfirming,
-    locked,
-    unlocking,
-    unlockingConfirming,
-    unlocked,
+    deploying,
+    deployConfirming,
+    deployed,
+    updating,
+    updatingConfirming
 }
 
 export default function Home() {
     const [state, setState] = useState(States.init);
+    const [time, setTime] = useState(300);
+    const [oracleAddress, setOracleAddress] = useState();
     var { connected } = useWallet()
+
+
+
+    useEffect(() => {
+        let timerId;
+        if (state === States.deployed && time > 0) {
+            timerId = setInterval(() => {
+                setTime(prevTime => prevTime - 1);
+            }, 1000);
+        }
+
+        return () => clearInterval(timerId);
+    }, [state, time]);
+
+    const formatTime = (time) => {
+        const minutes = Math.floor(time / 60);
+        const seconds = time % 60;
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
 
     return (
         <div className="container">
@@ -56,38 +73,45 @@ export default function Home() {
                 </div>
                 {connected && (
                     <>
-                        {(state == States.locking || state == States.unlocking) && (
-                            <>Creating transaction...</>
+                        {state == States.deployed && (
+                            <>Oracle deployed successfully.
+                            </>
                         )}
-                        {(state == States.lockingConfirming ||
-                            state == States.unlockingConfirming) && (
-                                <>Awaiting transaction confirm...</>
-                            )}
+                        {(state == States.deployConfirming) && (
+                            <>Awaiting transaction confirm...</>
+                        )}
                         {(state == States.unlocked) && (
                             <>Unlocked.</>
                         )}
                     </>
                 )}
                 <div className="grid">
-                    <a className="card">
+                    {(state == States.init || state == States.deploying || state == States.deployConfirming) && (<a className="card">
                         <h2>Deploy Oracle</h2>
                         <p>
-                            Deploy Oracle to get ADA price every 10 minutes:<br />
-                            {<DeployButton setState={setState} state={state} />}
+                            Deploy Oracle to get ADA price every 5 minutes:<br />
+                            {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} />}
                         </p>
-                    </a>
+                    </a>)}
 
-
+                    {state == States.deployed && (<a className="card">
+                        <h2>Oracle deployed data</h2>
+                        <p>
+                            Tx Hash:<br />
+                            Next update: {formatTime(time)}<br />
+                            {<QueryButton setState={setState} state={state} oracleAddress={oracleAddress} />}
+                        </p>
+                    </a>)}
                 </div>
             </main>
         </div>
     );
 }
 
-function DeployButton({ setState, state }) {
+function DeployButton({ setState, state, setOracleAddress }) {
     const { wallet, connected } = useWallet();
 
-    async function getPolicy(utxo) {
+    async function getPolicy(utxo: any) {
         const outRef = {
             alternative: 0,
             fields: [{
@@ -103,8 +127,9 @@ function DeployButton({ setState, state }) {
         }
     }
 
-    async function getAsset(oracleAddress) {
+    async function getAsset(oracleAddress: string) {
         const adaPrice = await fetchAdaPrice();
+        console.log(adaPrice);
         const datum = adaPrice.toString();
         return {
             assetName: "OracleNFT",
@@ -120,7 +145,7 @@ function DeployButton({ setState, state }) {
         };
     }
 
-    function getOracleScript(policy, address) {
+    function getOracleScript(policy: { code: string; version: string; }, address: string) {
         const nftPolicy = resolvePlutusScriptAddress(policy);
 
         const pkh = resolvePaymentKeyHash(address);
@@ -139,6 +164,7 @@ function DeployButton({ setState, state }) {
     }
 
     async function deployOracle() {
+        setState(States.deploying);
         //Getting all variables needed to deploy the oracle
         const utxos = (await wallet.getUtxos());
         const utxo = utxos[0];
@@ -148,6 +174,8 @@ function DeployButton({ setState, state }) {
         const oracleAddress = resolvePlutusScriptAddress(getOracleScript(policy, address));
         const mintAsset = await getAsset(oracleAddress);
 
+
+        setOracleAddress(oracleAddress);
         ///Making the transaction 
         const tx = new Transaction({ initiator: wallet })
             .mintAsset(policy, mintAsset, redeemer)
@@ -158,11 +186,11 @@ function DeployButton({ setState, state }) {
         const txHash = await wallet.submitTx(signedTx);
         console.log(txHash);
         if (txHash) {
-            setState(States.mintingConfirming);
+            setState(States.deployConfirming);
             blockchainProvider.onTxConfirmed(
                 txHash,
                 async () => {
-                    setState(States.minted);
+                    setState(States.deployed);
                 },
                 100
             );
@@ -176,11 +204,27 @@ function DeployButton({ setState, state }) {
 }
 
 
+function QueryButton({ setState, state, oracleAddress }) {
+    const { wallet, connected } = useWallet();
+
+    async function queryOracle() {
+        let value = undefined;
+        const utxos = await blockchainProvider.fetchAddressUTxOs(oracleAddress);
+        console.log(utxos[0]);
+        console.log("Datum: ", value);
+    }
+    return (
+        <button type="button" onClick={() => queryOracle()} className="demo button" disabled={!connected || state !== States.deployed}>
+            Query Oracle
+        </button>
+    );
+}
+
 const fetchAdaPrice = async () => {
     const baseUrl = 'https://api.polygon.io/v2/aggs/ticker/X:ADAUSD/prev';
     const params = new URLSearchParams({
         adjusted: 'true',
-        apiKey: process.env.NEXT_PUBLIC_POLYGON
+        apiKey: process.env.NEXT_PUBLIC_POLYGON as string
     });
 
     try {
