@@ -5,6 +5,8 @@ import {
     Transaction,
     resolvePaymentKeyHash,
     BlockfrostProvider,
+    resolvePlutusScriptHash,
+    readPlutusData
 } from "@meshsdk/core";
 import { applyParamsToScript } from '@meshsdk/core-csl'
 import { useState, useEffect } from "react";
@@ -24,11 +26,10 @@ enum States {
 
 export default function Home() {
     const [state, setState] = useState(States.init);
-    const [time, setTime] = useState(300);
+    const [time, setTime] = useState(60);
     const [oracleAddress, setOracleAddress] = useState();
+    const [policyId, setPolicyId] = useState();
     var { connected } = useWallet()
-
-
 
     useEffect(() => {
         let timerId;
@@ -90,7 +91,7 @@ export default function Home() {
                         <h2>Deploy Oracle</h2>
                         <p>
                             Deploy Oracle to get ADA price every 5 minutes:<br />
-                            {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} />}
+                            {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} setPolicyId={setPolicyId} />}
                         </p>
                     </a>)}
 
@@ -99,7 +100,7 @@ export default function Home() {
                         <p>
                             Tx Hash:<br />
                             Next update: {formatTime(time)}<br />
-                            {<QueryButton setState={setState} state={state} oracleAddress={oracleAddress} />}
+                            {<QueryButton setState={setState} state={state} oracleAddress={oracleAddress} policyId={policyId} />}
                         </p>
                     </a>)}
                 </div>
@@ -108,7 +109,7 @@ export default function Home() {
     );
 }
 
-function DeployButton({ setState, state, setOracleAddress }) {
+function DeployButton({ setState, state, setOracleAddress, setPolicyId }) {
     const { wallet, connected } = useWallet();
 
     async function getPolicy(utxo: any) {
@@ -173,9 +174,8 @@ function DeployButton({ setState, state, setOracleAddress }) {
         const redeemer = { data: { alternative: 0, fields: [] }, tag: 'MINT' };
         const oracleAddress = resolvePlutusScriptAddress(getOracleScript(policy, address));
         const mintAsset = await getAsset(oracleAddress);
-
-
         setOracleAddress(oracleAddress);
+        setPolicyId(resolvePlutusScriptHash(resolvePlutusScriptAddress(policy)));
         ///Making the transaction 
         const tx = new Transaction({ initiator: wallet })
             .mintAsset(policy, mintAsset, redeemer)
@@ -204,15 +204,17 @@ function DeployButton({ setState, state, setOracleAddress }) {
 }
 
 
-function QueryButton({ setState, state, oracleAddress }) {
+function QueryButton({ setState, state, oracleAddress, policyId }) {
     const { wallet, connected } = useWallet();
 
     async function queryOracle() {
-        let value = undefined;
-        const utxos = await blockchainProvider.fetchAddressUTxOs(oracleAddress);
-        console.log(utxos[0]);
-        console.log("Datum: ", value);
+        const asset = policyId + ascii_to_hexa("OracleNFT");
+        const utxo = (await blockchainProvider.fetchAddressUTxOs(oracleAddress, asset))[0];
+        let value = hexToString(readPlutusData(utxo.output.plutusData));
+        console.log(asset);
+        alert("ADA's oracle price: " + value);
     }
+
     return (
         <button type="button" onClick={() => queryOracle()} className="demo button" disabled={!connected || state !== States.deployed}>
             Query Oracle
@@ -239,3 +241,27 @@ const fetchAdaPrice = async () => {
         return error.message;
     }
 };
+
+
+
+function ascii_to_hexa(str: string): string {
+    let hex = '';
+    for (let i = 0; i < str.length; i++) {
+        let hexChar = str.charCodeAt(i).toString(16);
+        hex += ('00' + hexChar).slice(-2);
+    }
+    return hex;
+}
+
+function hexToString(hex: string): string {
+    if (hex.length % 2 !== 0) {
+        throw new Error("The hexadecimal string must have an even length.");
+    }
+    let str = '';
+    for (let i = 0; i < hex.length; i += 2) {
+        const hexPair = hex.substr(i, 2);
+        const charCode = parseInt(hexPair, 16);
+        str += String.fromCharCode(charCode);
+    }
+    return str;
+}
