@@ -1,19 +1,26 @@
 import Head from "next/head";
-import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
+import { CardanoWallet, useWallet } from "@meshsdk/react";
 import {
     resolvePlutusScriptAddress,
     Transaction,
     resolvePaymentKeyHash,
     BlockfrostProvider,
-    resolvePlutusScriptHash,
-    readPlutusData
+    readPlutusData,
+    MeshTxBuilder
 } from "@meshsdk/core";
-import { applyParamsToScript } from '@meshsdk/core-csl'
+import { applyParamsToScript, getV2ScriptHash } from '@meshsdk/core-csl'
 import { useState, useEffect } from "react";
 import plutusScript from "../../../onchain/plutus.json"
+import { mConStr0 } from "@meshsdk/common";
 
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
+
+const mesh = new MeshTxBuilder({
+    fetcher: blockchainProvider,
+    submitter: blockchainProvider,
+    evaluator: blockchainProvider,
+});
 
 enum States {
     init,
@@ -25,10 +32,12 @@ enum States {
 }
 
 export default function Home() {
+    const { wallet } = useWallet();
     const [state, setState] = useState(States.init);
-    const [time, setTime] = useState(60);
-    const [oracleAddress, setOracleAddress] = useState();
+    const [time, setTime] = useState(10);
+    const [oracleAddress, setOracleAddress] = useState("");
     const [policyId, setPolicyId] = useState();
+    const [oracleScript, setOracleScript] = useState({ code: "", version: "" });
     var { connected } = useWallet()
 
     useEffect(() => {
@@ -39,14 +48,76 @@ export default function Home() {
             }, 1000);
         }
 
-        return () => clearInterval(timerId);
+        return () => {
+            clearInterval(timerId);
+        }
     }, [state, time]);
 
-    const formatTime = (time) => {
-        const minutes = Math.floor(time / 60);
-        const seconds = time % 60;
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    };
+    useEffect(() => {
+        if (time === 0) {
+            updateOracle();
+        }
+    }, [time]);
+
+
+    const updateOracle = async () => {
+        setState(States.updating);
+        const address = (await wallet.getUsedAddresses())[0];
+        const asset = policyId + ascii_to_hexa("OracleNFT");
+        const utxos = await blockchainProvider.fetchAddressUTxOs(oracleAddress, asset);
+        const utxo = utxos[0];
+        const collateral = (await blockchainProvider.fetchAddressUTxOs(address))[0];
+        const adaPrice = await fetchAdaPrice();
+        const datum = adaPrice.toString();
+        const redeemer = {
+            data: { alternative: 0, fields: [] },
+        };
+
+        mesh
+            .spendingPlutusScriptV2()
+            .txIn(
+                utxo.input.txHash,
+                utxo.input.outputIndex,
+                utxo.output.amount,
+                address
+            )
+            .txInRedeemerValue(mConStr0([]))
+            .txInInlineDatumPresent()
+            .txInScript(oracleScript.code)
+            .txIn(
+                collateral.input.txHash,
+                collateral.input.outputIndex,
+                collateral.output.amount,
+                address
+            )
+            .txInCollateral(
+                collateral.input.txHash,
+                collateral.input.outputIndex,
+                collateral.output.amount,
+                address)
+            .requiredSignerHash(resolvePaymentKeyHash(address))
+            .txOut(oracleAddress, [{ unit: asset, quantity: "1" }])
+            .txOutInlineDatumValue(ascii_to_hexa(adaPrice))
+            .changeAddress(address)
+            .completeSync();
+
+
+
+        const signedTx = await wallet.signTx(mesh.txHex, true);
+        const txHash = await wallet.submitTx(signedTx);
+        console.log(txHash);
+        if (txHash) {
+            setState(States.deployConfirming);
+            blockchainProvider.onTxConfirmed(
+                txHash,
+                async () => {
+                    setState(States.deployed);
+                    setTime(60);
+                },
+                100
+            );
+        }
+    }
 
     return (
         <div className="container">
@@ -91,11 +162,11 @@ export default function Home() {
                         <h2>Deploy Oracle</h2>
                         <p>
                             Deploy Oracle to get ADA price every 5 minutes:<br />
-                            {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} setPolicyId={setPolicyId} />}
+                            {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} setPolicyId={setPolicyId} setOracleScript={setOracleScript} />}
                         </p>
                     </a>)}
 
-                    {state == States.deployed && (<a className="card">
+                    {(state == States.deployed || state == States.updatingConfirming) && (<a className="card">
                         <h2>Oracle deployed data</h2>
                         <p>
                             Tx Hash:<br />
@@ -109,7 +180,7 @@ export default function Home() {
     );
 }
 
-function DeployButton({ setState, state, setOracleAddress, setPolicyId }) {
+function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracleScript }) {
     const { wallet, connected } = useWallet();
 
     async function getPolicy(utxo: any) {
@@ -130,7 +201,6 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId }) {
 
     async function getAsset(oracleAddress: string) {
         const adaPrice = await fetchAdaPrice();
-        console.log(adaPrice);
         const datum = adaPrice.toString();
         return {
             assetName: "OracleNFT",
@@ -147,10 +217,9 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId }) {
     }
 
     function getOracleScript(policy: { code: string; version: string; }, address: string) {
-        const nftPolicy = resolvePlutusScriptAddress(policy);
-
+        const nftPolicy = getV2ScriptHash(policy.code);
         const pkh = resolvePaymentKeyHash(address);
-        const oNft = { alternative: 0, fields: [nftPolicy, "OracleNFT"] };
+        const oNft = { alternative: 0, fields: [nftPolicy, ascii_to_hexa("OracleNFT")] };
 
         const parameter = {
             alternative: 0,
@@ -175,7 +244,9 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId }) {
         const oracleAddress = resolvePlutusScriptAddress(getOracleScript(policy, address));
         const mintAsset = await getAsset(oracleAddress);
         setOracleAddress(oracleAddress);
-        setPolicyId(resolvePlutusScriptHash(resolvePlutusScriptAddress(policy)));
+        setPolicyId(getV2ScriptHash(policy.code));
+        setOracleScript(getOracleScript(policy, address));
+
         ///Making the transaction 
         const tx = new Transaction({ initiator: wallet })
             .mintAsset(policy, mintAsset, redeemer)
@@ -211,7 +282,6 @@ function QueryButton({ setState, state, oracleAddress, policyId }) {
         const asset = policyId + ascii_to_hexa("OracleNFT");
         const utxo = (await blockchainProvider.fetchAddressUTxOs(oracleAddress, asset))[0];
         let value = hexToString(readPlutusData(utxo.output.plutusData));
-        console.log(asset);
         alert("ADA's oracle price: " + value);
     }
 
@@ -265,3 +335,9 @@ function hexToString(hex: string): string {
     }
     return str;
 }
+
+const formatTime = (time) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = time % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};

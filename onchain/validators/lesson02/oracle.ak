@@ -26,7 +26,11 @@ type OracleRedeemer {
 }
 
 validator(params: OracleParams) {
-  fn oracle(_datum: Int, redeemer: OracleRedeemer, ctx: ScriptContext) -> Bool {
+  fn oracle(
+    _datum: ByteArray,
+    redeemer: OracleRedeemer,
+    ctx: ScriptContext,
+  ) -> Bool {
     when ctx.purpose is {
       Spend(this_script_output_reference) -> {
         let is_signed_by_operator =

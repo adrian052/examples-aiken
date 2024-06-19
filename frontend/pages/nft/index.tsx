@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
+import { CardanoWallet, MeshBadge, useWallet, } from "@meshsdk/react";
 import plutusScript from "../../../onchain/plutus.json"
 import { useState } from "react";
 import {
@@ -9,7 +9,8 @@ import {
     resolveDataHash,
     resolvePaymentKeyHash,
     resolvePlutusScriptHash,
-    BlockfrostProvider
+    BlockfrostProvider,
+    MeshTxBuilder
 } from "@meshsdk/core";
 import {
     applyParamsToScript
@@ -22,7 +23,14 @@ import cbor from "cbor";
 
 
 
-const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST);
+const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
+
+
+const mesh = new MeshTxBuilder({
+    fetcher: blockchainProvider,
+    submitter: blockchainProvider,
+    evaluator: blockchainProvider,
+});
 
 enum States {
     init,
@@ -145,7 +153,8 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
         const address = (await wallet.getUsedAddresses())[0];
 
         //Getting nft policy
-        const utxo = (await wallet.getUtxos())[0];
+        const utxos = await wallet.getUtxos();
+        const utxo = utxos[0];
         const outRef = { alternative: 0, fields: [{ alternative: 0, fields: [utxo.input.txHash] }, utxo.input.outputIndex] }
         const cborPolicy = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/nft.nft")[0].compiledCode, [outRef, tokenName])
         const policy = {
@@ -169,7 +178,7 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
             tag: 'MINT'
         };
 
-        const tx = new Transaction({ initiator: wallet }).mintAsset(policy, asset, redeemer).setTxInputs([utxo]);
+        const tx = new Transaction({ initiator: wallet }).mintAsset(policy, asset, redeemer).setTxInputs(utxos);
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);
