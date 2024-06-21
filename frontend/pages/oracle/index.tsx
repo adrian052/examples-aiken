@@ -11,7 +11,9 @@ import {
 import { applyParamsToScript, getV2ScriptHash } from '@meshsdk/core-csl'
 import { useState, useEffect } from "react";
 import plutusScript from "../../../onchain/plutus.json"
-import { mConStr0 } from "@meshsdk/common";
+import { hexToString, mConStr0, stringToHex } from "@meshsdk/common";
+import { fetchAdaPrice } from "../../lib/api";
+import { formatTime } from "../../lib/utils";
 
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
@@ -63,7 +65,7 @@ export default function Home() {
     const updateOracle = async () => {
         setState(States.updating);
         const address = (await wallet.getUsedAddresses())[0];
-        const asset = policyId + ascii_to_hexa("OracleNFT");
+        const asset = policyId + stringToHex("OracleNFT");
         const utxos = await blockchainProvider.fetchAddressUTxOs(oracleAddress, asset);
         const oracleUtxo = utxos[0];
         const ownerUtxo = (await blockchainProvider.fetchAddressUTxOs(address))[0];
@@ -95,7 +97,7 @@ export default function Home() {
                 address)
             .requiredSignerHash(resolvePaymentKeyHash(address))
             .txOut(oracleAddress, oracleUtxo.output.amount)
-            .txOutInlineDatumValue(ascii_to_hexa(datum))
+            .txOutInlineDatumValue(stringToHex(datum))
             .changeAddress(address)
             .completeSync();
 
@@ -195,6 +197,7 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracl
     }
 
     async function getAsset(oracleAddress: string) {
+
         const adaPrice = await fetchAdaPrice();
         const datum = adaPrice.toString();
         return {
@@ -214,7 +217,7 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracl
     function getOracleScript(policy: { code: string; version: string; }, address: string) {
         const nftPolicy = getV2ScriptHash(policy.code);
         const pkh = resolvePaymentKeyHash(address);
-        const oNft = { alternative: 0, fields: [nftPolicy, ascii_to_hexa("OracleNFT")] };
+        const oNft = { alternative: 0, fields: [nftPolicy, stringToHex("OracleNFT")] };
 
         const parameter = {
             alternative: 0,
@@ -271,10 +274,10 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracl
 
 
 function QueryButton({ setState, state, oracleAddress, policyId }) {
-    const { wallet, connected } = useWallet();
+    const { connected } = useWallet();
 
     async function queryOracle() {
-        const asset = policyId + ascii_to_hexa("OracleNFT");
+        const asset = policyId + stringToHex("OracleNFT");
         const utxo = (await blockchainProvider.fetchAddressUTxOs(oracleAddress, asset))[0];
         let value = hexToString(readPlutusData(utxo.output.plutusData));
         alert("ADA's oracle price: " + value);
@@ -286,53 +289,3 @@ function QueryButton({ setState, state, oracleAddress, policyId }) {
         </button>
     );
 }
-
-const fetchAdaPrice = async () => {
-    const baseUrl = 'https://api.polygon.io/v2/aggs/ticker/X:ADAUSD/prev';
-    const params = new URLSearchParams({
-        adjusted: 'true',
-        apiKey: process.env.NEXT_PUBLIC_POLYGON as string
-    });
-
-    try {
-        const response = await fetch(`${baseUrl}?${params}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        const price = data.results[0].c;
-        return price;
-    } catch (error) {
-        return error.message;
-    }
-};
-
-
-
-function ascii_to_hexa(str: string): string {
-    let hex = '';
-    for (let i = 0; i < str.length; i++) {
-        let hexChar = str.charCodeAt(i).toString(16);
-        hex += ('00' + hexChar).slice(-2);
-    }
-    return hex;
-}
-
-function hexToString(hex: string): string {
-    if (hex.length % 2 !== 0) {
-        throw new Error("The hexadecimal string must have an even length.");
-    }
-    let str = '';
-    for (let i = 0; i < hex.length; i += 2) {
-        const hexPair = hex.substr(i, 2);
-        const charCode = parseInt(hexPair, 16);
-        str += String.fromCharCode(charCode);
-    }
-    return str;
-}
-
-const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = time % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-};
