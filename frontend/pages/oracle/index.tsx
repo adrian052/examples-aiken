@@ -65,39 +65,37 @@ export default function Home() {
         const address = (await wallet.getUsedAddresses())[0];
         const asset = policyId + ascii_to_hexa("OracleNFT");
         const utxos = await blockchainProvider.fetchAddressUTxOs(oracleAddress, asset);
-        const utxo = utxos[0];
-        const collateral = (await blockchainProvider.fetchAddressUTxOs(address))[0];
+        const oracleUtxo = utxos[0];
+        const ownerUtxo = (await blockchainProvider.fetchAddressUTxOs(address))[0];
         const adaPrice = await fetchAdaPrice();
         const datum = adaPrice.toString();
-        const redeemer = {
-            data: { alternative: 0, fields: [] },
-        };
+
 
         mesh
             .spendingPlutusScriptV2()
             .txIn(
-                utxo.input.txHash,
-                utxo.input.outputIndex,
-                utxo.output.amount,
+                oracleUtxo.input.txHash,
+                oracleUtxo.input.outputIndex,
+                oracleUtxo.output.amount,
                 address
             )
             .txInRedeemerValue(mConStr0([]))
             .txInInlineDatumPresent()
             .txInScript(oracleScript.code)
             .txIn(
-                collateral.input.txHash,
-                collateral.input.outputIndex,
-                collateral.output.amount,
+                ownerUtxo.input.txHash,
+                ownerUtxo.input.outputIndex,
+                ownerUtxo.output.amount,
                 address
             )
             .txInCollateral(
-                collateral.input.txHash,
-                collateral.input.outputIndex,
-                collateral.output.amount,
+                ownerUtxo.input.txHash,
+                ownerUtxo.input.outputIndex,
+                ownerUtxo.output.amount,
                 address)
             .requiredSignerHash(resolvePaymentKeyHash(address))
-            .txOut(oracleAddress, [{ unit: asset, quantity: "1" }])
-            .txOutInlineDatumValue(ascii_to_hexa(adaPrice))
+            .txOut(oracleAddress, oracleUtxo.output.amount)
+            .txOutInlineDatumValue(ascii_to_hexa(datum))
             .changeAddress(address)
             .completeSync();
 
@@ -112,7 +110,7 @@ export default function Home() {
                 txHash,
                 async () => {
                     setState(States.deployed);
-                    setTime(60);
+                    setTime(10);
                 },
                 100
             );
@@ -152,16 +150,13 @@ export default function Home() {
                         {(state == States.deployConfirming) && (
                             <>Awaiting transaction confirm...</>
                         )}
-                        {(state == States.unlocked) && (
-                            <>Unlocked.</>
-                        )}
                     </>
                 )}
                 <div className="grid">
                     {(state == States.init || state == States.deploying || state == States.deployConfirming) && (<a className="card">
                         <h2>Deploy Oracle</h2>
                         <p>
-                            Deploy Oracle to get ADA price every 5 minutes:<br />
+                            Deploy Oracle and update it automatically:<br />
                             {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} setPolicyId={setPolicyId} setOracleScript={setOracleScript} />}
                         </p>
                     </a>)}
@@ -250,7 +245,7 @@ function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracl
         ///Making the transaction 
         const tx = new Transaction({ initiator: wallet })
             .mintAsset(policy, mintAsset, redeemer)
-            .setTxInputs(utxos);
+            .setTxInputs(utxos).setCollateral(utxos);
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);
