@@ -3,26 +3,31 @@ import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
 import plutusScript from "../../../onchain/plutus.json"
 import { useState } from "react";
 import {
-    Data,
+    BlockfrostProvider,
+    MeshTxBuilder,
+    Asset,
     resolvePlutusScriptAddress,
-    Transaction,
-    resolveDataHash,
-    resolvePaymentKeyHash,
-    resolvePlutusScriptHash,
-    BlockfrostProvider
+    resolvePaymentKeyHash
 } from "@meshsdk/core";
 import {
-    applyParamsToScript
+    applyParamsToScript,
+    getV2ScriptHash
 } from '@meshsdk/core-csl'
 import {
-    txOutRef,
-    builtinByteString
+    builtinByteString,
+    mConStr0,
+    mConStr1,
+    stringToHex
 } from '@meshsdk/common';
-import cbor from "cbor";
 
 
+const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
-const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST);
+const mesh = new MeshTxBuilder({
+    fetcher: blockchainProvider,
+    submitter: blockchainProvider,
+    evaluator: blockchainProvider,
+});
 
 enum States {
     init,
@@ -38,8 +43,8 @@ enum States {
 export default function Home() {
     const [state, setState] = useState(States.init);
     var { connected } = useWallet();
-    const [policy, setPolicy] = useState();
-    const [policyId, setPolicyId] = useState();
+    const [giftCardPolicy, setGiftCardPolicy] = useState();
+    const [giftCardScript, setGiftCardScript] = useState();
     const [tokenName, setTokenName] = useState("");
     const [transactionHash, setTransactionHash] = useState();
     const [script, setScript] = useState();
@@ -68,7 +73,7 @@ export default function Home() {
 
             <main className="main">
                 <h1 style={{ margin: '0', lineHeight: '1.15', fontSize: '4rem', fontWeight: 200 }}>
-                    <a style={{ color: 'orange', textDecoration: 'none' }}>NFT for free</a>
+                    <a style={{ color: 'orange', textDecoration: 'none' }}>Gift card</a>
                 </h1>
 
                 <div className="demo">
@@ -111,8 +116,8 @@ export default function Home() {
                             <br /><input disabled={state !== States.init || !connected} onChange={handleToken} /><br />
                             {<MintButton setState={setState}
                                 state={state}
-                                setPolicy={setPolicy}
-                                setPolicyId={setPolicyId}
+                                setGiftCardScript={setGiftCardScript}
+                                setGiftCardPolicy={setGiftCardPolicy}
                                 tokenName={tokenName}
                                 setTransactionHash={setTransactionHash}
                                 setScript={setScript} />}
@@ -126,8 +131,8 @@ export default function Home() {
                             {<BurnButton
                                 setState={setState}
                                 state={state}
-                                policy={policy}
-                                policyId={policyId}
+                                giftCardScript={giftCardScript}
+                                giftCardPolicy={giftCardPolicy}
                                 tokenName={tokenName}
                                 setTransactionHash={setTransactionHash}
                                 script={script} />}
@@ -139,64 +144,70 @@ export default function Home() {
     );
 }
 
-function getScript() {
-    const script = {
-        code: cbor
-            .encode(Buffer.from(plutusScript.validators.filter((val: any) => val.title == "lesson01/always_true.gift")[0].compiledCode, "hex"))
-            .toString("hex"),
-        version: "V2",
-    };
-    return script;
-}
 
-function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTransactionHash, setScript }) {
+function MintButton({ setState, state, setGiftCardScript, setGiftCardPolicy, tokenName, setTransactionHash, setScript }) {
     const { wallet, connected } = useWallet();
 
-    async function getPolicy(utxo) {
+    function getPolicy(utxo) {
         const outRef = { alternative: 0, fields: [{ alternative: 0, fields: [utxo.input.txHash] }, utxo.input.outputIndex] }
-        const cborPolicy = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/nft.nft")[0].compiledCode, [outRef, tokenName])
+        const cborPolicy = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/nft.nft")[0].compiledCode, [outRef, stringToHex(tokenName)])
         return {
             code: cborPolicy,
             version: "V2"
         }
     }
-    function getAsset(address) {
-        return {
-            assetName: tokenName,
-            assetQuantity: "1",
-            label: "721",
-            recipient: address,
-        };
-    }
-
-    function getRedeemer() {
-        return {
-            data: { alternative: 0, fields: [] },
-            tag: 'MINT'
-        };
-    }
 
     async function mintAiken() {
         setState(States.minting);
-        const utxos = await wallet.getUtxos();
-        const address = (await wallet.getUsedAddresses())[0];
-        const policy = await getPolicy(utxos[0]);
-        const asset = getAsset(address);
-        const redeemer = getRedeemer()
-        console.log(policy, asset, redeemer);
-
-        const tx = new Transaction({ initiator: wallet }).sendLovelace(
+        const allUtxos = await wallet.getUtxos();
+        const collateral = (await wallet.getCollateral())[0];
+        const firstUtxo = allUtxos[0];
+        const tokenNameHex = stringToHex(tokenName);
+        const remainingUtxos = allUtxos.slice(1);
+        const giftValue: Asset[] = [
             {
-                address: resolvePlutusScriptAddress(getScript(), 0),
+                unit: 'lovelace',
+                quantity: '20000000',
             },
-            '50000000',
-        ).mintAsset(policy, asset, redeemer).setTxInputs(utxos);
-        setPolicy(policy);
-        const policyAddress = resolvePlutusScriptAddress(policy, 0);
-        const policyId = resolvePlutusScriptHash(policyAddress);
-        setPolicyId(policyId);
-        const unsignedTx = await tx.build();
-        const signedTx = await wallet.signTx(unsignedTx);
+        ];
+        const giftCardScript = getPolicy(firstUtxo).code;
+        const giftCardPolicy = getV2ScriptHash(giftCardScript);
+        setGiftCardPolicy(giftCardPolicy);
+        setGiftCardScript(giftCardScript)
+        const walletAddress = (await wallet.getUsedAddresses())[0];
+        const redeemScript = getRedeemScript(giftCardPolicy, tokenName);
+        const redeemAddr = resolvePlutusScriptAddress(redeemScript, 0);
+        mesh.txIn(
+            firstUtxo.input.txHash,
+            firstUtxo.input.outputIndex,
+            firstUtxo.output.amount,
+            firstUtxo.output.address
+        )
+            .mintPlutusScriptV2()
+            .mint('1', giftCardPolicy, tokenNameHex)
+            .mintingScript(giftCardScript)
+            .mintRedeemerValue(mConStr0([]))
+            .txOut(redeemAddr, [
+                ...giftValue,
+                { unit: giftCardPolicy + tokenNameHex, quantity: '1' },
+            ])
+            .txOutInlineDatumValue([
+                firstUtxo.input.txHash,
+                firstUtxo.input.outputIndex,
+                tokenNameHex,
+            ])
+            .changeAddress(walletAddress)
+            .txInCollateral(
+                collateral.input.txHash,
+                collateral.input.outputIndex,
+                collateral.output.amount,
+                collateral.output.address
+            )
+            .requiredSignerHash(resolvePaymentKeyHash(walletAddress))
+            .selectUtxosFrom(remainingUtxos)
+            .completeSync();
+
+        const signedTx = await wallet.signTx(mesh.txHex, true);
         const txHash = await wallet.submitTx(signedTx);
         console.log("txHash", txHash);
         setTransactionHash(txHash);
@@ -220,68 +231,49 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
 }
 
 
-function BurnButton({ setState, state, policy, policyId, tokenName, setTransactionHash, script }) {
+function BurnButton({ setState, state, giftCardScript, giftCardPolicy, tokenName, setTransactionHash, script }) {
     const { wallet } = useWallet();
 
-    function utf8_to_hexa(str) {
-        let hex = '';
-        for (let i = 0; i < str.length; i++) {
-            let codePoint = str.codePointAt(i);
-            let utf8Bytes = [];
-
-            if (codePoint < 0x80) {
-                utf8Bytes.push(codePoint);
-            } else if (codePoint < 0x800) {
-                utf8Bytes.push(0xC0 | (codePoint >> 6));
-                utf8Bytes.push(0x80 | (codePoint & 0x3F));
-            } else if (codePoint < 0x10000) {
-                utf8Bytes.push(0xE0 | (codePoint >> 12));
-                utf8Bytes.push(0x80 | ((codePoint >> 6) & 0x3F));
-                utf8Bytes.push(0x80 | (codePoint & 0x3F));
-            } else {
-                utf8Bytes.push(0xF0 | (codePoint >> 18));
-                utf8Bytes.push(0x80 | ((codePoint >> 12) & 0x3F));
-                utf8Bytes.push(0x80 | ((codePoint >> 6) & 0x3F));
-                utf8Bytes.push(0x80 | (codePoint & 0x3F));
-                i++;
-            }
-
-            for (let byte of utf8Bytes) {
-                hex += ('00' + byte.toString(16)).slice(-2);
-            }
-        }
-        return hex;
-    }
-
     async function burnAiken() {
-        const address = (await wallet.getUsedAddresses())[0];
-        console.log(address);
-        const script = getScript();
-        const scriptAddress = resolvePlutusScriptAddress(script, 0);
-        const utxo = (await blockchainProvider.fetchAddressUTxOs(scriptAddress, ''))[0];
-        console.log(script, scriptAddress, utxo);
-        const asset = {
-            unit: policyId + utf8_to_hexa(tokenName),
-            quantity: "1",
-        };
-        console.log(asset);
+        const walletAddress = (await wallet.getUsedAddresses())[0];
+        const redeemScript = getRedeemScript(giftCardPolicy, tokenName);
+        const redeemAddr = resolvePlutusScriptAddress(redeemScript, 0);
+        const utxos = await wallet.getUtxos();
+        const giftCardUtxo = (await blockchainProvider.fetchAddressUTxOs(redeemAddr))[0];
+        console.log(giftCardUtxo);
+        const collateral = (await wallet.getCollateral())[0];
+        const tokenNameHex = stringToHex(tokenName);
 
-        const redeemer = {
-            data: { alternative: 1, fields: [] },
-            tag: 'MINT'
-        };
+        console.log(giftCardScript);
+        console.log(giftCardPolicy);
 
-        const tx = new Transaction({ initiator: wallet })
-            .redeemValue({
-                value: utxo,
-                script: script,
-                datum: 'secret1',
-            })
-            .sendValue(address, utxo)
-            .setRequiredSigners([address]);
+        mesh
+            .spendingPlutusScriptV2()
+            .txIn(
+                giftCardUtxo.input.txHash,
+                giftCardUtxo.input.outputIndex,
+                giftCardUtxo.output.amount,
+                giftCardUtxo.output.address
+            )
+            .spendingReferenceTxInInlineDatumPresent()
+            .spendingReferenceTxInRedeemerValue("")
+            .txInScript(redeemScript.code)
+            .mintPlutusScriptV2()
+            .mint('-1', giftCardPolicy, tokenNameHex)
+            .mintingScript(giftCardScript, "V2")
+            .mintRedeemerValue(mConStr1([]))
+            .changeAddress(walletAddress)
+            .txInCollateral(
+                collateral.input.txHash,
+                collateral.input.outputIndex,
+                collateral.output.amount,
+                collateral.output.address
+            )
+            .selectUtxosFrom(utxos)
+            .requiredSignerHash(resolvePaymentKeyHash(walletAddress))
+            .completeSync();
 
-        const unsignedTx = await tx.build();
-        const signedTx = await wallet.signTx(unsignedTx);
+        const signedTx = await wallet.signTx(mesh.txHex, true);
         const txHash = await wallet.submitTx(signedTx);
         console.log("txHash", txHash);
         setTransactionHash(txHash);
@@ -302,4 +294,12 @@ function BurnButton({ setState, state, policy, policyId, tokenName, setTransacti
             Burn
         </button>
     );
+}
+
+function getRedeemScript(policyId, tokenName) {
+    const cborScript = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/redeem_gift.redeem")[0].compiledCode, [stringToHex(tokenName), policyId])
+    return {
+        code: cborScript,
+        version: "V2"
+    }
 }
