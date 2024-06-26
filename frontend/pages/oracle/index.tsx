@@ -2,7 +2,7 @@ import Head from "next/head";
 import { CardanoWallet, useWallet } from "@meshsdk/react";
 import { useState, useEffect } from "react";
 import { BlockfrostProvider, MeshTxBuilder, resolvePaymentKeyHash } from "@meshsdk/core";
-import { formatTime } from "../../lib/utils";
+import { formatTime, formatTxHash } from "../../lib/utils";
 import { fetchAdaPrice } from "../../lib/api";
 import { DeployButton } from "../../components/buttons/DeployButton";
 import { QueryButton } from "../../components/buttons/QueryButton";
@@ -18,9 +18,11 @@ const mesh = new MeshTxBuilder({
 });
 
 export default function Home() {
+    const seconds = 60;
     const { wallet } = useWallet();
     const [state, setState] = useState(States.init);
-    const [time, setTime] = useState(10);
+    const [time, setTime] = useState(seconds);
+    const [txHash, setTxHash] = useState("");
     const [oracleAddress, setOracleAddress] = useState("");
     const [policyId, setPolicyId] = useState();
     const [oracleScript, setOracleScript] = useState({ code: "", version: "" });
@@ -85,15 +87,17 @@ export default function Home() {
             .completeSync();
 
         const signedTx = await wallet.signTx(mesh.txHex, true);
-        const txHash = await wallet.submitTx(signedTx);
-        console.log(txHash);
-        if (txHash) {
-            setState(States.deployConfirming);
+        const newTxHash = await wallet.submitTx(signedTx);
+        mesh.reset();
+        console.log(newTxHash);
+        if (newTxHash) {
+            setState(States.updatingConfirming);
             blockchainProvider.onTxConfirmed(
-                txHash,
+                newTxHash,
                 async () => {
                     setState(States.deployed);
-                    setTime(10);
+                    setTime(seconds);
+                    setTxHash(newTxHash);
                 },
                 100
             );
@@ -126,10 +130,10 @@ export default function Home() {
                 </div>
                 {connected && (
                     <>
-                        {state == States.deployed && (
+                        {(state == States.deployed) && (
                             <>Oracle deployed successfully.</>
                         )}
-                        {(state == States.deployConfirming) && (
+                        {(state == States.deployConfirming || state == States.updatingConfirming) && (
                             <>Awaiting transaction confirm...</>
                         )}
                     </>
@@ -140,16 +144,16 @@ export default function Home() {
                             <h2>Deploy Oracle</h2>
                             <p>
                                 Deploy Oracle and update it automatically:<br />
-                                {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} setPolicyId={setPolicyId} setOracleScript={setOracleScript} />}
+                                {<DeployButton setState={setState} state={state} setOracleAddress={setOracleAddress} setPolicyId={setPolicyId} setOracleScript={setOracleScript} setTxHash={setTxHash} />}
                             </p>
                         </a>
                     )}
 
-                    {(state == States.deployed || state == States.updatingConfirming) && (
+                    {(state == States.deployed || state == States.updatingConfirming || state == States.updating) && (
                         <a className="card">
                             <h2>Oracle deployed data</h2>
                             <p>
-                                Tx Hash:<br />
+                                Tx Hash:<br />{txHash}<br />
                                 Next update: {formatTime(time)}<br />
                                 {<QueryButton state={state} oracleAddress={oracleAddress} policyId={policyId} />}
                             </p>

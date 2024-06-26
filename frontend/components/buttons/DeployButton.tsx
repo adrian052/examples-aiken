@@ -14,7 +14,7 @@ import { States } from "../../lib/oracle-states";
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
-export function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracleScript }) {
+export function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracleScript, setTxHash }) {
     const { wallet, connected } = useWallet();
 
     async function getPolicy(utxo) {
@@ -94,6 +94,7 @@ export function DeployButton({ setState, state, setOracleAddress, setPolicyId, s
                 txHash,
                 async () => {
                     setState(States.deployed);
+                    setTxHash(txHash);
                 },
                 100
             );
