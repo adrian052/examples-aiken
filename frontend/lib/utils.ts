@@ -3,3 +3,8 @@ export const formatTime = (time: number): string => {
     const seconds = time % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
+
+export function formatTxHash(txHash) {
+    const formatted = txHash.match(/.{1,32}/g).join('\n');
+    return formatted;
+}

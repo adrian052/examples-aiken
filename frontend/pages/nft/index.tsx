@@ -3,11 +3,8 @@ import { CardanoWallet, MeshBadge, useWallet, } from "@meshsdk/react";
 import plutusScript from "../../../onchain/plutus.json"
 import { useState } from "react";
 import {
-    Data,
     resolvePlutusScriptAddress,
     Transaction,
-    resolveDataHash,
-    resolvePaymentKeyHash,
     resolvePlutusScriptHash,
     BlockfrostProvider,
     MeshTxBuilder
@@ -15,12 +12,6 @@ import {
 import {
     applyParamsToScript
 } from '@meshsdk/core-csl'
-import {
-    txOutRef,
-    builtinByteString
-} from '@meshsdk/common';
-import cbor from "cbor";
-
 
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
@@ -113,7 +104,7 @@ export default function Home() {
                     <a className="card">
                         <h2>Mint</h2>
                         <p>
-                            Mint asset using an NFT policy:<br /><br />
+                            Mint asset using an NFT policy, using collateral:<br /><br />
                             Token Name:
                             <br /><input disabled={state !== States.init || !connected} onChange={handleToken} /><br />
                             {<MintButton setState={setState}
@@ -128,7 +119,7 @@ export default function Home() {
                     <a className="card">
                         <h2>Burn</h2>
                         <p>
-                            Burn asset from NFT policy:<br /><br /><br /><br />
+                            Burn asset from NFT policy, using collateral:<br /><br /><br /><br />
                             {<BurnButton
                                 setState={setState}
                                 state={state}
@@ -151,7 +142,8 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
         setState(States.minting);
 
         const address = (await wallet.getUsedAddresses())[0];
-
+        //Getting collateral from wallet (make sure you enable collateral for transaction fees)
+        const collateral = await wallet.getCollateral();
         //Getting nft policy
         const utxos = await wallet.getUtxos();
         const utxo = utxos[0];
@@ -178,7 +170,7 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
             tag: 'MINT'
         };
 
-        const tx = new Transaction({ initiator: wallet }).mintAsset(policy, asset, redeemer).setTxInputs(utxos);
+        const tx = new Transaction({ initiator: wallet }).mintAsset(policy, asset, redeemer).setTxInputs(utxos).setCollateral(collateral);
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);
@@ -221,9 +213,8 @@ function BurnButton({ setState, state, policy, policyId, tokenName, setTransacti
     async function burnAiken() {
         setState(States.burning);
 
-        const address = (await wallet.getUsedAddresses())[0];
-        const utxos = await blockchainProvider.fetchAddressUTxOs(address, policyId + ascii_to_hexa(tokenName));
-
+        //Getting collateral from wallet (make sure you enable collateral for transaction fees)
+        const collateral = await wallet.getCollateral();
         //Asset to burn
 
         const asset = {
@@ -237,7 +228,7 @@ function BurnButton({ setState, state, policy, policyId, tokenName, setTransacti
         };
 
         // create the burn asset transaction
-        const tx = new Transaction({ initiator: wallet }).burnAsset(policy, asset, redeemer);
+        const tx = new Transaction({ initiator: wallet }).burnAsset(policy, asset, redeemer).setCollateral(collateral);
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);

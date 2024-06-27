@@ -153,7 +153,7 @@ export default function Home() {
                         <a className="card">
                             <h2>Oracle deployed data</h2>
                             <p>
-                                Tx Hash:<br />{txHash}<br />
+                                Tx Hash:<br />{formatTxHash(txHash)}<br />
                                 Next update: {formatTime(time)}<br />
                                 {<QueryButton state={state} oracleAddress={oracleAddress} policyId={policyId} />}
                             </p>
