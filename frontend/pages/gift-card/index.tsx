@@ -211,6 +211,7 @@ function MintButton({ setState, state, setGiftCardScript, setGiftCardPolicy, tok
         const txHash = await wallet.submitTx(signedTx);
         console.log("txHash", txHash);
         setTransactionHash(txHash);
+        mesh.reset();
         if (txHash) {
             setState(States.mintingConfirming);
             blockchainProvider.onTxConfirmed(
@@ -277,6 +278,7 @@ function BurnButton({ setState, state, giftCardScript, giftCardPolicy, tokenName
         const txHash = await wallet.submitTx(signedTx);
         console.log("txHash", txHash);
         setTransactionHash(txHash);
+        mesh.reset();
         if (txHash) {
             setState(States.mintingConfirming);
             blockchainProvider.onTxConfirmed(
