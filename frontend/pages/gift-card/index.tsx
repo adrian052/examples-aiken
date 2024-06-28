@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
+import { CardanoWallet, useWallet } from "@meshsdk/react";
 import plutusScript from "../../../onchain/plutus.json"
 import { useState } from "react";
 import {
@@ -7,18 +7,19 @@ import {
     MeshTxBuilder,
     Asset,
     resolvePlutusScriptAddress,
-    resolvePaymentKeyHash
+    resolvePaymentKeyHash,
+    UTxO
 } from "@meshsdk/core";
 import {
     applyParamsToScript,
     getV2ScriptHash
 } from '@meshsdk/core-csl'
 import {
-    builtinByteString,
     mConStr0,
     mConStr1,
     stringToHex
 } from '@meshsdk/common';
+import { SetState } from "../../lib/types";
 
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
@@ -39,18 +40,16 @@ enum States {
     burned,
 }
 
-
 export default function Home() {
     const [state, setState] = useState(States.init);
     var { connected } = useWallet();
-    const [giftCardPolicy, setGiftCardPolicy] = useState();
-    const [giftCardScript, setGiftCardScript] = useState();
+    const [giftCardPolicy, setGiftCardPolicy] = useState("");
+    const [giftCardScript, setGiftCardScript] = useState("");
     const [tokenName, setTokenName] = useState("");
-    const [transactionHash, setTransactionHash] = useState();
-    const [script, setScript] = useState();
+    const [transactionHash, setTransactionHash] = useState("");
+    type InputChangeEvent = React.ChangeEvent<HTMLInputElement>;
 
-
-    const handleToken = (event) => {
+    const handleToken = (event: InputChangeEvent) => {
         const value = event.target.value;
         setTokenName(value);
     };
@@ -119,8 +118,7 @@ export default function Home() {
                                 setGiftCardScript={setGiftCardScript}
                                 setGiftCardPolicy={setGiftCardPolicy}
                                 tokenName={tokenName}
-                                setTransactionHash={setTransactionHash}
-                                setScript={setScript} />}
+                                setTransactionHash={setTransactionHash} />}
                         </p>
                     </a>
 
@@ -134,8 +132,7 @@ export default function Home() {
                                 giftCardScript={giftCardScript}
                                 giftCardPolicy={giftCardPolicy}
                                 tokenName={tokenName}
-                                setTransactionHash={setTransactionHash}
-                                script={script} />}
+                                setTransactionHash={setTransactionHash} />}
                         </p>
                     </a>
                 </div>
@@ -145,10 +142,20 @@ export default function Home() {
 }
 
 
-function MintButton({ setState, state, setGiftCardScript, setGiftCardPolicy, tokenName, setTransactionHash, setScript }) {
+type MintParams = {
+    setState: SetState<States>,
+    state: States,
+    setGiftCardScript: SetState<string>,
+    setGiftCardPolicy: SetState<string>,
+    tokenName: string,
+    setTransactionHash: SetState<string>,
+}
+
+
+function MintButton({ setState, state, setGiftCardScript, setGiftCardPolicy, tokenName, setTransactionHash }: MintParams) {
     const { wallet, connected } = useWallet();
 
-    function getPolicy(utxo) {
+    function getPolicy(utxo: UTxO) {
         const outRef = { alternative: 0, fields: [{ alternative: 0, fields: [utxo.input.txHash] }, utxo.input.outputIndex] }
         const cborPolicy = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/nft.nft")[0].compiledCode, [outRef, stringToHex(tokenName)])
         return {
@@ -167,7 +174,7 @@ function MintButton({ setState, state, setGiftCardScript, setGiftCardPolicy, tok
         const giftValue: Asset[] = [
             {
                 unit: 'lovelace',
-                quantity: '20000000',
+                quantity: '50000000',
             },
         ];
         const giftCardScript = getPolicy(firstUtxo).code;
@@ -232,7 +239,16 @@ function MintButton({ setState, state, setGiftCardScript, setGiftCardPolicy, tok
 }
 
 
-function BurnButton({ setState, state, giftCardScript, giftCardPolicy, tokenName, setTransactionHash, script }) {
+type BurnParams = {
+    setState: SetState<States>,
+    state: States,
+    giftCardScript: any,
+    giftCardPolicy: string,
+    tokenName: string,
+    setTransactionHash: SetState<string>,
+}
+
+function BurnButton({ setState, state, giftCardScript, giftCardPolicy, tokenName, setTransactionHash }: BurnParams) {
     const { wallet } = useWallet();
 
     async function burnAiken() {
@@ -298,7 +314,7 @@ function BurnButton({ setState, state, giftCardScript, giftCardPolicy, tokenName
     );
 }
 
-function getRedeemScript(policyId, tokenName) {
+function getRedeemScript(policyId: string, tokenName: string) {
     const cborScript = applyParamsToScript(plutusScript.validators.filter((val: any) => val.title == "lesson02/redeem_gift.redeem")[0].compiledCode, [stringToHex(tokenName), policyId])
     return {
         code: cborScript,

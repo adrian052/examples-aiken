@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { CardanoWallet, MeshBadge, useWallet, } from "@meshsdk/react";
+import { CardanoWallet, useWallet, } from "@meshsdk/react";
 import plutusScript from "../../../onchain/plutus.json"
 import { useState } from "react";
 import {
@@ -7,21 +7,14 @@ import {
     Transaction,
     resolvePlutusScriptHash,
     BlockfrostProvider,
-    MeshTxBuilder
 } from "@meshsdk/core";
 import {
     applyParamsToScript
 } from '@meshsdk/core-csl'
-
+import { stringToHex } from "@meshsdk/common";
+import { SetState } from "../../lib/types";
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
-
-
-const mesh = new MeshTxBuilder({
-    fetcher: blockchainProvider,
-    submitter: blockchainProvider,
-    evaluator: blockchainProvider,
-});
 
 enum States {
     init,
@@ -33,17 +26,16 @@ enum States {
     burned,
 }
 
-
 export default function Home() {
     const [state, setState] = useState(States.init);
     var { connected } = useWallet();
-    const [policy, setPolicy] = useState();
-    const [policyId, setPolicyId] = useState();
+    const [policy, setPolicy] = useState({ code: "", version: "" });
+    const [policyId, setPolicyId] = useState("");
     const [tokenName, setTokenName] = useState("");
-    const [transactionHash, setTransactionHash] = useState();
+    const [transactionHash, setTransactionHash] = useState("");
+    type InputChangeEvent = React.ChangeEvent<HTMLInputElement>;
 
-
-    const handleToken = (event) => {
+    const handleToken = (event: InputChangeEvent) => {
         const value = event.target.value;
         setTokenName(value);
     };
@@ -135,7 +127,17 @@ export default function Home() {
     );
 }
 
-function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTransactionHash }) {
+
+type MintParams = {
+    setState: SetState<States>,
+    state: States,
+    setPolicy: SetState<any>,
+    setPolicyId: SetState<string>,
+    tokenName: string,
+    setTransactionHash: SetState<string>
+}
+
+function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTransactionHash }: MintParams) {
     const { wallet, connected } = useWallet();
 
     async function mintAiken() {
@@ -158,7 +160,7 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
         setPolicyId(policyId);
         setPolicy(policy);
 
-        const asset: Mint = {
+        const asset = {
             assetName: tokenName,
             assetQuantity: "1",
             label: "721",
@@ -198,17 +200,20 @@ function MintButton({ setState, state, setPolicy, setPolicyId, tokenName, setTra
 }
 
 
-function BurnButton({ setState, state, policy, policyId, tokenName, setTransactionHash }) {
-    const { wallet } = useWallet();
+type BurnParams = {
+    setState: SetState<States>,
+    state: States,
+    policy: {
+        code: string,
+        version: string
+    },
+    policyId: string,
+    tokenName: string,
+    setTransactionHash: SetState<string>
+}
 
-    function ascii_to_hexa(str: string): string {
-        let hex = '';
-        for (let i = 0; i < str.length; i++) {
-            let hexChar = str.charCodeAt(i).toString(16);
-            hex += ('00' + hexChar).slice(-2);
-        }
-        return hex;
-    }
+function BurnButton({ setState, state, policy, policyId, tokenName, setTransactionHash }: BurnParams) {
+    const { wallet } = useWallet();
 
     async function burnAiken() {
         setState(States.burning);
@@ -216,9 +221,8 @@ function BurnButton({ setState, state, policy, policyId, tokenName, setTransacti
         //Getting collateral from wallet (make sure you enable collateral for transaction fees)
         const collateral = await wallet.getCollateral();
         //Asset to burn
-
         const asset = {
-            unit: policyId + ascii_to_hexa(tokenName),
+            unit: policyId + stringToHex(tokenName),
             quantity: "1",
         };
 

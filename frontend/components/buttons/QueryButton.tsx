@@ -9,7 +9,13 @@ import { States } from "../../lib/oracle-states";
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
-export function QueryButton({ state, oracleAddress, policyId }) {
+type QueryParams = {
+    state: States,
+    oracleAddress: string,
+    policyId: string,
+}
+
+export function QueryButton({ state, oracleAddress, policyId }: QueryParams) {
     const { connected } = useWallet();
 
     async function queryOracle() {

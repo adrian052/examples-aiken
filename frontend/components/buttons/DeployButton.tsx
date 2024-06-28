@@ -1,23 +1,32 @@
-import React from "react";
 import { useWallet } from "@meshsdk/react";
 import {
     resolvePlutusScriptAddress,
     Transaction,
     resolvePaymentKeyHash,
     BlockfrostProvider,
+    UTxO,
 } from "@meshsdk/core";
 import { applyParamsToScript, getV2ScriptHash } from '@meshsdk/core-csl';
 import plutusScript from "../../../onchain/plutus.json";
 import { stringToHex } from "@meshsdk/common";
 import { fetchAdaPrice } from "../../lib/api";
 import { States } from "../../lib/oracle-states";
+import { SetState } from "../../lib/types";
 
 const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
-export function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracleScript, setTxHash }) {
+type DeployParams = {
+    setState: SetState<States>,
+    state: States,
+    setOracleAddress: SetState<string>,
+    setPolicyId: SetState<string>,
+    setOracleScript: SetState<any>,
+    setTxHash: SetState<string>
+}
+export function DeployButton({ setState, state, setOracleAddress, setPolicyId, setOracleScript, setTxHash }: DeployParams) {
     const { wallet, connected } = useWallet();
 
-    async function getPolicy(utxo) {
+    async function getPolicy(utxo: UTxO) {
         const outRef = {
             alternative: 0,
             fields: [{
@@ -32,7 +41,7 @@ export function DeployButton({ setState, state, setOracleAddress, setPolicyId, s
         };
     }
 
-    async function getAsset(oracleAddress) {
+    async function getAsset(oracleAddress: string) {
         const adaPrice = await fetchAdaPrice();
         const datum = adaPrice.toString();
         return {
@@ -49,7 +58,7 @@ export function DeployButton({ setState, state, setOracleAddress, setPolicyId, s
         };
     }
 
-    function getOracleScript(policy, address) {
+    function getOracleScript(policy: any, address: string) {
         const nftPolicy = getV2ScriptHash(policy.code);
         const pkh = resolvePaymentKeyHash(address);
         const oNft = { alternative: 0, fields: [nftPolicy, stringToHex("OracleNFT")] };
@@ -75,6 +84,7 @@ export function DeployButton({ setState, state, setOracleAddress, setPolicyId, s
         const redeemer = { data: { alternative: 0, fields: [] }, tag: 'MINT' };
         const oracleAddress = resolvePlutusScriptAddress(getOracleScript(policy, address));
         const mintAsset = await getAsset(oracleAddress);
+        const collateral = await wallet.getCollateral();
         setOracleAddress(oracleAddress);
         setPolicyId(getV2ScriptHash(policy.code));
         setOracleScript(getOracleScript(policy, address));
@@ -82,7 +92,7 @@ export function DeployButton({ setState, state, setOracleAddress, setPolicyId, s
         const tx = new Transaction({ initiator: wallet })
             .mintAsset(policy, mintAsset, redeemer)
             .setTxInputs(utxos)
-            .setCollateral(utxos);
+            .setCollateral(collateral);
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx);

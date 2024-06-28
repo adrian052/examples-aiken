@@ -3,18 +3,15 @@ import { CardanoWallet, MeshBadge, useWallet } from "@meshsdk/react";
 import plutusScript from "../../../onchain/plutus.json"
 import { useState } from "react";
 import {
-    Data,
     resolvePlutusScriptAddress,
     Transaction,
     resolveDataHash,
     resolvePaymentKeyHash,
     BlockfrostProvider
-
 } from "@meshsdk/core";
 
-
 import cbor from "cbor";
-
+import { SetState } from "../../lib/types";
 
 const script = {
     code: cbor
@@ -24,7 +21,7 @@ const script = {
 };
 
 const scriptAddress = resolvePlutusScriptAddress(script, 0);
-const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST);
+const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
 enum States {
     init,
@@ -36,13 +33,13 @@ enum States {
     unlocked,
 }
 
-
 export default function Home() {
     const [state, setState] = useState(States.init);
-    const [redeemer, setRedeemer] = useState(0);
+    const [redeemer, setRedeemer] = useState("");
     var { connected } = useWallet()
+    type InputChangeEvent = React.ChangeEvent<HTMLInputElement>;
 
-    const handleChange = (event) => {
+    const handleChange = (event: InputChangeEvent) => {
         const value = event.target.value;
         if (/^[0-9]*$/.test(value)) {
             setRedeemer(value);
@@ -115,12 +112,17 @@ export default function Home() {
     );
 }
 
-function LockButton({ setState, state }) {
+
+type LockParams = {
+    setState: SetState<States>,
+    state: States
+}
+
+function LockButton({ setState, state }: LockParams) {
     const { wallet, connected } = useWallet();
 
     async function lockAiken() {
         setState(States.locking);
-        const hash = resolvePaymentKeyHash((await wallet.getUsedAddresses())[0]);
         const tx = new Transaction({ initiator: wallet }).sendLovelace(
             {
                 address: scriptAddress,
@@ -155,10 +157,16 @@ function LockButton({ setState, state }) {
 }
 
 
-function UnlockButton({ setState, state, redeemerData }) {
+type UnlockParams = {
+    setState: SetState<States>,
+    state: States,
+    redeemerData: string
+}
+
+function UnlockButton({ setState, state, redeemerData }: UnlockParams) {
     const { wallet } = useWallet();
 
-    async function _getAssetUtxo({ scriptAddress, asset }) {
+    async function _getAssetUtxo(scriptAddress: string, asset: string) {
 
         const utxos = await blockchainProvider.fetchAddressUTxOs(scriptAddress, asset);
 
@@ -178,10 +186,7 @@ function UnlockButton({ setState, state, redeemerData }) {
         const address = (await wallet.getUsedAddresses())[0];
         const hash = resolvePaymentKeyHash(address);
 
-        const assetUtxo = await _getAssetUtxo({
-            scriptAddress: scriptAddress,
-            asset: "lovelace",
-        });
+        const assetUtxo = await _getAssetUtxo(scriptAddress, "lovelace");
         console.log("assetUtxo", assetUtxo);
         console.log(parseInt(redeemerData));
         const redeemer = { data: parseInt(redeemerData) };
@@ -199,22 +204,18 @@ function UnlockButton({ setState, state, redeemerData }) {
 
         const unsignedTx = await tx.build();
         const signedTx = await wallet.signTx(unsignedTx, true);
-        var txHash = undefined;
         try {
             const txHash = await wallet.submitTx(signedTx);
             console.log("txHash", txHash);
+            setState(States.unlockingConfirming);
+            blockchainProvider.onTxConfirmed(txHash, () => {
+                setState(States.unlocked);
+            });
         } catch (error) {
-            alert("Error: Transaction failed", error);
+            alert("Error: Transaction failed" + error);
             setState(States.locked)
             return;
         }
-
-
-        setState(States.unlockingConfirming);
-        blockchainProvider.onTxConfirmed(txHash, () => {
-            setState(States.unlocked);
-        });
-
     }
 
     return (

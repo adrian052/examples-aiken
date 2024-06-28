@@ -24,12 +24,12 @@ export default function Home() {
     const [time, setTime] = useState(seconds);
     const [txHash, setTxHash] = useState("");
     const [oracleAddress, setOracleAddress] = useState("");
-    const [policyId, setPolicyId] = useState();
+    const [policyId, setPolicyId] = useState("");
     const [oracleScript, setOracleScript] = useState({ code: "", version: "" });
     var { connected } = useWallet();
 
     useEffect(() => {
-        let timerId;
+        let timerId: NodeJS.Timeout;
         if (state === States.deployed && time > 0) {
             timerId = setInterval(() => {
                 setTime(prevTime => prevTime - 1);
@@ -77,7 +77,7 @@ export default function Home() {
             .txInCollateral(
                 ownerUtxo.input.txHash,
                 ownerUtxo.input.outputIndex,
-                ownerUtxo.output.amount,
+                [{ unit: "lovelace", quantity: "5000000" }],
                 address
             )
             .requiredSignerHash(resolvePaymentKeyHash(address))

@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 import plutusScript from "../../../onchain/plutus.json"
 import cbor from "cbor";
+import { SetState } from "../../lib/types";
 
 
 // Getting always true script
@@ -23,7 +24,7 @@ const script = {
 
 const scriptAddress = resolvePlutusScriptAddress(script, 0);
 
-const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST);
+const blockchainProvider = new BlockfrostProvider(process.env.NEXT_PUBLIC_BLOCKFROST as string);
 
 enum States {
     init,
@@ -102,7 +103,12 @@ export default function Home() {
 
 
 ///Transaction functions
-function LockButton({ setState, state }) {
+type buttonParams = {
+    setState: SetState<States>;
+    state: States;
+}
+
+function LockButton({ setState, state }: buttonParams) {
     const { wallet, connected } = useWallet();
 
     async function lockAiken() {
@@ -142,14 +148,11 @@ function LockButton({ setState, state }) {
 }
 
 
-function UnlockButton({ setState, state }) {
+function UnlockButton({ setState, state }: buttonParams) {
     const { wallet } = useWallet();
 
-    async function _getAssetUtxo({ scriptAddress, asset }) {
-
+    async function _getAssetUtxo(scriptAddress: string, asset: string) {
         const utxos = await blockchainProvider.fetchAddressUTxOs(scriptAddress, asset);
-
-
         const hash = resolveDataHash("secret1")
         let utxo = utxos.find((utxo: any) => {
             return utxo.output.dataHash == hash;
@@ -163,12 +166,8 @@ function UnlockButton({ setState, state }) {
         const scriptAddress = resolvePlutusScriptAddress(script, 0);
 
         const address = (await wallet.getUsedAddresses())[0];
-        const hash = resolvePaymentKeyHash(address);
 
-        const assetUtxo = await _getAssetUtxo({
-            scriptAddress: scriptAddress,
-            asset: "lovelace",
-        });
+        const assetUtxo = await _getAssetUtxo(scriptAddress, "lovelace",);
         console.log("assetUtxo", assetUtxo);
 
         // create the unlock asset transaction
